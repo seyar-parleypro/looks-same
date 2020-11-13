@@ -3,6 +3,7 @@
 const _ = require('lodash');
 const parseColor = require('parse-color');
 const colorDiff = require('color-diff');
+const fs = require('fs-extra');
 const png = require('./lib/png');
 const areColorsSame = require('./lib/same-colors');
 const AntialiasingComparator = require('./lib/antialiasing-comparator');
@@ -137,7 +138,7 @@ const getMaxDiffBounds = (first, second) => {
     };
 };
 
-module.exports = exports = function looksSame(image1, image2, opts, callback) {
+module.exports = exports = async function looksSame(image1, image2, opts, callback) {
     if (!callback) {
         callback = opts;
         opts = {};
@@ -146,15 +147,46 @@ module.exports = exports = function looksSame(image1, image2, opts, callback) {
     opts = prepareOpts(opts);
     [image1, image2] = utils.formatImages(image1, image2);
 
+    // console.log(`hermione:looks-same: ref src: ${image1.source}`);
+
+    const readCb = async ({source, ...opts}) => {
+        const buf = await fs.readFile(source);
+        return {source: buf, ...opts};
+    };
+
+    // try {
+    const start = process.hrtime();
+    const {first: buffData1, second: buffData2} = await utils.readPair(image1, image2, readCb);
+    const buffEquals = buffData1.source.equals(buffData2.source);
+    const end1 = process.hrtime(start);
+
+    console.log(`hermione:looks-same: ref src: ${image1.source}, actual src: ${image2.source}, buf1: ${buffData1.source.length}, buf2: ${buffData2.source.length}, exec_time: ${end1[0]}s ${end1[1] / 1e6}ms, BUFFERS ARE ${buffEquals ? 'EQUAL' : 'NOT EQUAL'}`);
+
+    // if (buffEquals) {
+    // process.nextTick(() => callback(null, {equal: true}));
+    // }
+
+    // else {
+    // console.log(`hermione:looks-same: ref src: ${image1.source}, buf1: ${first.source.length}, buf2: ${second.source.length}, BUFFERS ARE NOT EQUAL`);
+    // }
+    // } catch (err) {
+    // return callback(err);
+    // }
+
     utils
-        .readPair(image1, image2)
+        .readPair(buffData1, buffData2)
         .then(({first, second}) => {
             const refImg = {size: {width: first.width, height: first.height}};
             const metaInfo = {refImg};
 
             if (first.width !== second.width || first.height !== second.height) {
                 const diffBounds = getMaxDiffBounds(first, second);
-                return process.nextTick(() => callback(null, {equal: false, metaInfo, diffBounds, diffClusters: [diffBounds]}));
+                process.nextTick(() => callback(null, {equal: false, metaInfo, diffBounds, diffClusters: [diffBounds]}));
+
+                const end2 = process.hrtime(start);
+                console.log(`hermione:looks-same: ref src: ${image1.source}, actual src: ${image2.source}, buf1: ${first._png.data.length}, buf2: ${second._png.data.length}, exec_time: ${end2[0]}s ${end2[1] / 1e6}ms, BUFFERS ARE ${buffEquals ? 'EQUAL' : 'NOT EQUAL'} AND IMAGE SIZES NOT EQUAL`);
+
+                return;
             }
 
             const comparator = createComparator(first, second, opts);
@@ -162,12 +194,18 @@ module.exports = exports = function looksSame(image1, image2, opts, callback) {
 
             getDiffPixelsCoords(first, second, comparator, {stopOnFirstFail, shouldCluster, clustersSize}, ({diffArea, diffClusters}) => {
                 const diffBounds = diffArea.area;
+                const equal = diffArea.isEmpty();
 
-                callback(null, {equal: diffArea.isEmpty(), metaInfo, diffBounds, diffClusters});
+                callback(null, {equal, metaInfo, diffBounds, diffClusters});
+
+                const end3 = process.hrtime(start);
+                console.log(`hermione:looks-same: ref src: ${image1.source}, actual src: ${image2.source}, buf1: ${first._png.data.length}, buf2: ${second._png.data.length}, exec_time: ${end3[0]}s ${end3[1] / 1e6}ms, BUFFERS ARE ${buffEquals ? 'EQUAL' : 'NOT EQUAL'} AND IMAGES ARE ${equal ? 'EQUAL' : 'NOT EQUAL'}`);
             });
         })
         .catch(error => {
             callback(error);
+            const end4 = process.hrtime(start);
+            console.log(`hermione:looks-same: ref src: ${image1.source}, actual src: ${image2.source}, buf1: ${buffData1.source.length}, buf2: ${buffData2.source.length}, exec_time: ${end4[0]}s ${end4[1] / 1e6}ms, BUFFERS ARE ${buffEquals ? 'EQUAL' : 'NOT EQUAL'} AND ERROR APPEARS:`, error);
         });
 };
 
