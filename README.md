@@ -40,6 +40,7 @@ looksSame('image1.png', 'image2.png', {tolerance: 5}, function(error, {equal}) {
 Default `tolerance` in non-strict mode is 2.3 which is enough for the most cases.
 Setting `tolerance` to 0 will produce the same result as `strict: true`, but strict mode
 is faster.
+
 Attempt to set `tolerance` in strict mode will produce an error.
 
 Some devices can have different proportion between physical and logical screen resolutions also
